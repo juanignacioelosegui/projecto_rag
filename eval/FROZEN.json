@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "files": {
+    "single_turn.jsonl": {
+      "rows": 53,
+      "sha256_canonical": "8381cb2945cfcc668107a5f4ddf0b43dd68f511253d79b0b4982c5f7cf2867bc"
+    },
+    "dialogues.jsonl": {
+      "rows": 9,
+      "sha256_canonical": "c4d1c2ee216c8e94efa025d490e64f7d20e3d0d325e13b2ec00a678717db2e9e"
+    },
+    "scenarios.jsonl": {
+      "rows": 4,
+      "sha256_canonical": "4387b5fb8d4acad762937f437fc308173c2f1c43d8d4aaab52b06f1854741b35"
+    }
+  },
+  "documents_sha256": "6c58d2cf300c1ff61649139369495ff70ad8766b15acabd8af74a0d5228aa7c6",
+  "counts": {
+    "single-turn items": 53,
+    "by split": {
+      "dev": 8,
+      "test": 45
+    },
+    "by category": {
+      "topical": 20,
+      "identifier": 18,
+      "metadata": 10,
+      "out_of_corpus": 5
+    },
+    "dialogues": 9,
+    "dialogue turns": 36,
+    "scenarios": 4,
+    "probes by ability": {
+      "extraction": 6,
+      "preference": 3,
+      "temporal": 4,
+      "knowledge_update": 4,
+      "multi_session": 4,
+      "abstention": 4
+    },
+    "yes/no rows (expected_verdict)": 15
+  }
+}

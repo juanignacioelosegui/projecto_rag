@@ -49,13 +49,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 STAGE_STEMS = (
     "00_corpus_audit",
+    "00b_corpus_audit_ours",   # nuestra Etapa 0: la resuelta es donde empieza, no donde termina
     "01_documents",
     "02_eval_set",
     "03_retrieval",
-    "04_grounded_answers",
-    "05_conversation",
-    "06_memory",
-    "07_second_read",
+    "04_generation",   # nuestros nombres: el enunciado sugería 04_grounded_answers / 05_conversation
+    "05_dialogue",
+    "06_memory",       # sin Etapa 7: el plan de la Entrada 1 del registro la deja afuera
 )
 STAGES: dict[str, tuple[Path, Path]] = {s: (ROOT / f"{s}.py", ROOT / f"{s}.ipynb") for s in STAGE_STEMS}
 

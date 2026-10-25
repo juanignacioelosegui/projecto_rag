@@ -33,7 +33,12 @@ environment.summary()
 
 from console import StageRun, clip, print_table, verdict
 
-SMOKE_TEST = True  # True: unas pocas páginas, minutos en una laptop. False: el subconjunto entero.
+import os
+
+# True: unas pocas páginas, minutos en una laptop. False: el subconjunto entero.
+# Lo leemos del entorno porque el reparto híbrido (ver decision_log.md) corre esta misma etapa
+# en dos máquinas: `SMOKE_TEST=0 python 00_corpus_audit.py` en la de escritorio, el default acá.
+SMOKE_TEST = os.environ.get("SMOKE_TEST", "1").lower() not in ("0", "false", "no")
 SEED = 1337
 ART = environment.artifacts_dir(SMOKE_TEST)
 PROFILE = "smoke" if SMOKE_TEST else "full"
