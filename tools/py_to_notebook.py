@@ -63,7 +63,7 @@ CELL_MARKER = re.compile(r"^#\s*%%(.*)$")
 
 # --- Colab bootstrap: EDIT THESE when you publish (the only place they appear) ----------
 URL_PLACEHOLDER = "CHANGEME"
-REPO_URL = "https://github.com/solidgoldmagickarp/projecto_rag.git"
+REPO_URL = "https://github.com/juanignacioelosegui/projecto_rag.git"
 REPO_BRANCH = ""          # "" = the repository's default branch
 REPO_DIR = "projecto_rag"
 DRIVE_DIR = "projecto_rag"   # folder under MyDrive used when USE_DRIVE = True
