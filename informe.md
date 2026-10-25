@@ -34,14 +34,14 @@ Tres convenciones que valen para todas las tablas:
 
 ## 1 · Decisiones de diseño y su justificación
 
-El detalle, con fechas y alternativas descartadas, está en `decision_log.md` (6 entradas). Acá el
+El detalle, con fechas y alternativas descartadas, está en `decision_log.md` (7 entradas). Acá el
 resumen de las que condicionaron todo lo demás:
 
 | Decisión | Alternativa descartada | Qué nos llevó ahí |
 |---|---|---|
 | **Corpus `python-docs-es` por HTML compilado** | los `.po` del repo de traducción | el `.po` es la unidad de traducción, no la de lectura: entradas sueltas, `fuzzy`, obsoletas. El HTML es lo que un usuario lee (Entrada 2) |
 | **Dos versiones (3.13 y 3.12), no una** | una sola versión | el corpus necesita documentos confundibles para que la recuperación tenga trabajo; las páginas gemelas comparten de 0,35 a 1,00 de 5-gramas (MinHash, Etapa 0) |
-| **Reparto híbrido 3050 (6 GB) / T4 de Colab** | todo local, o todo en Colab | 6 GB de VRAM alcanzan para el índice y el reranker, no para `qwen3:8b` cómodo con `num_ctx` grande (Entrada 1) |
+| **Todo en una RTX 3050 de 6 GB** | el reparto híbrido con una T4 de Colab (plan original, Entrada 1) | cada etapa que cruza la frontera entre dos máquinas puede desalinear el `documents_sha256` o el `index_key`, y el chequeo que lo detecta corre *después* de gastar las llamadas. El costo: `qwen3:8b` no entra en 6 GB (~5,2 de pesos + ~1,2 de caché KV a 8.192), así que la corrida se reporta con lo que diga `llm.placement()` (Entrada 7) |
 | **Etapa 3 acotada a 3 filas** | el barrido completo de piezas | el presupuesto de la Entrada 1 no daba para más filas *y* llegar a la Etapa 6, que es donde está la pregunta del proyecto |
 | **Sin Etapa 7** | juez LLM + framework | «menos etapas bien razonadas» (rúbrica §5.2); el presupuesto se gastó en memoria |
 | **`num_ctx = 8192` en TODAS las etapas** | ajustarlo por etapa | una fila que cambia la ventana no mide su estrategia de contexto, mide la ventana |
@@ -377,13 +377,25 @@ python -c "import store, environment as e; store.pack_for_review(e.artifacts_dir
 #    y los .ipynb CON salidas
 ```
 
-**Antes de la corrida larga, dos chequeos de 5 minutos:**
+**Antes de la corrida larga, tres chequeos de 5 minutos:**
 
 ```bash
 python verify_setup.py                      # servidor, modelo, VRAM, tokenizador
 SMOKE_TEST=1 python tools/run_stages.py --from 03 --to 06   # humo de punta a punta
 python tools/py_to_notebook.py --check      # los .ipynb al día con los .py
+
+# y el que decide si la corrida dura 2 horas o 10 (mirar la línea `placement`):
+python -c "import llm; llm.setup('qwen3:8b', num_ctx=8192)"
 ```
+
+`placement` es el único que distingue las dos corridas posibles en esta placa. Si dice `100% GPU`,
+nada que hacer. Si dice `SPLIT x% CPU / y% GPU`, el modelo no entró en los 6 GB: **las respuestas
+son las mismas y no hay error**, solo varias veces más lento — de 1,5-2,5 h a 5-12 h sobre ~480
+llamadas. La Entrada 7 del registro decide **aceptar el split y reportarlo**, porque la comparación
+entre brazos es interna a cada etapa y el split afecta a todos los brazos igual: cuesta horas, no
+validez. Dos cosas que **no** se tocan: `num_ctx` (a 4.096 la Etapa 4 recortaría su entrega de
+pasajes en silencio) y el embebedor (moverlo a CPU cambia el `dtype` del `encoder_spec`, y con él la
+clave de `store.cached_matrix`: re-encodearía las dos matrices de hijos desde cero).
 
 **Riesgos conocidos de la corrida, con su mitigación ya en el código:** la caché de llamadas
 (`artifacts/full/llm_cache/`) hace que una desconexión no cueste la etapa entera; `ResultsLog`

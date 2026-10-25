@@ -473,6 +473,70 @@ hipótesis. Ningún script puede decidir si un recuerdo es cierto.
 
 ---
 
+## 2026-10-25 · Entrada 7 — Todo en la 3050: se cae el reparto híbrido
+
+**Qué cambia.** La Entrada 1 repartía el trabajo: Etapas 0-3 en la 3050 local, Etapas 4-6 en una T4
+de Colab, porque 6 GB de VRAM no alcanzan para `qwen3:8b` con `num_ctx` grande. Decidimos correr
+**todas las etapas en la 3050**. Esta entrada reemplaza ese reparto; el resto de la Entrada 1 (el
+presupuesto de llamadas, los modelos, el `num_ctx` fijo) sigue en pie.
+
+**Por qué el reparto no se sostenía.** La T4 agrega una máquina más que montar, un repositorio
+privado que clonar con un token, y artefactos que viajan entre dos sistemas de archivos. Cada
+etapa que cruza la frontera es una oportunidad de que el `documents_sha256` o el `index_key` dejen
+de coincidir, y el chequeo que lo detecta corre *después* de haber gastado las llamadas.
+
+**La cuenta que hay que mirar de frente.** Con los números del enunciado (§7.2 y su tabla de caché
+KV), `qwen3:8b` Q4_K_M son ~5,2 GB de pesos y la caché KV a `num_ctx = 8192` son ~1,2 GB: **~6,4
+GB contra 6 de la placa**, y eso *antes* de `bge-m3` en fp16 y el cross-encoder, que en nuestra
+estimación suman ~1,9 GB más con el contexto de CUDA. No entra. `llm.placement()` lo va a reportar
+como `SPLIT … expect several times slower`, que es exactamente el modo de falla que el enunciado
+advierte: **mismas respuestas, varias veces más lento, sin error**. A ~480 llamadas, el
+presupuesto de 1,5-2,5 horas de la Entrada 1 pasa a 5-12 horas.
+
+**Las palancas, en orden, y por qué en ese orden.**
+
+1. **Medir antes de tocar.** `llm.placement(MODEL)` después de `llm.setup`. Si dice `100% GPU`, no
+   hay nada que decidir. Esa línea va al informe en los dos casos: una corrida partida es un dato
+   sobre el experimento, no un detalle de infraestructura.
+2. **`OLLAMA_KV_CACHE_TYPE=q8_0` con `OLLAMA_FLASH_ATTENTION=1`.** La caché KV baja de ~1,2 a ~0,6
+   GB. Cambia la aritmética de la atención, así que si se activa se activa para *todas* las etapas
+   que se comparan entre sí, nunca a mitad de un barrido.
+3. **El reranker a CPU** (~0,5 GB de los nuestros). El cross-encoder no tiene nada cacheado, así que
+   moverlo no cuesta más que rerankear más lento, y contra 10-20 s de generación no se nota.
+4. **`qwen3:4b-q4_K_M`** (~2,5 GB de pesos + 0,6 de KV): entra entera con todo cargado y es ~3x más
+   rápida. La Entrada 1 ya la nombraba como primera palanca; acá queda como la **última**, porque
+   bajar el generador cambia las respuestas que estamos midiendo, mientras que 2 y 3 solo cambian
+   dónde corren los números.
+
+**Una palanca que parecía gratis y no lo es: el embebedor a CPU.** `environment.device()` sale de
+`torch.cuda.is_available()`, así que con `CUDA_VISIBLE_DEVICES=""` torch deja la placa entera para
+Ollama —Ollama es otro proceso— y se liberan ~1,4 GB. Pero `retrieval.load` arma el
+`encoder_spec` con `"dtype": "fp16" if device == "cuda" else "fp32"`, y `store.cached_matrix` hashea
+el spec para formar su clave: **en CPU la clave cambia y las dos matrices de hijos se re-encodean de
+cero con `bge-m3`**, que es más caro que todo lo que la palanca ahorra. Descartada, y anotada acá
+para no volver a proponerla. (El spec tiene razón en registrar el `dtype`: la precisión del cómputo
+es parte de qué produjo esa matriz.)
+
+**Lo que esto implica, sin adornos.** Con 2 y 3 aplicadas, Ollama necesita ~5,8 GB y nosotros
+seguimos reteniendo ~1,4 GB de `bge-m3` más el contexto de CUDA: en 6 GB no cierra. Es decir que en
+esta placa, con la pila de recuperación residente, **`qwen3:8b` no puede quedar entera en VRAM**. La
+decisión real es binaria: aceptar el `SPLIT` (5-12 h, con la caché de `llm` protegiendo los
+reintentos) o bajar a `qwen3:4b`. Las palancas 2 y 3 solo achican cuánto se ofloadea. Elegimos
+**aceptar el split y reportarlo**: la comparación entre brazos es interna a cada etapa y el split
+afecta a todos los brazos igual, así que cuesta horas, no validez.
+
+**Lo que decidimos NO mover: `num_ctx`.** Bajarlo a 4.096 haría entrar el modelo, pero la Etapa 4
+entrega `BUDGET_TOKENS = 3000` más 700 de reserva de salida: `pr.passage_budget` recortaría la
+entrega **en silencio**, y las 3 filas de la Etapa 4 medirían un presupuesto de pasajes distinto
+del que midió la Etapa 3. El problema no es la ventana chica, es que el recorte no avisa.
+`num_ctx = 8192` queda fijo en las Etapas 4, 5 y 6.
+
+**Qué más se cae con esto.** El arranque para Colab de `tools/py_to_notebook.py` (clonar el
+repositorio privado con `GITHUB_TOKEN`) deja de estar en el camino crítico. Queda en el código
+porque las notebooks tienen que poder abrirse en otra máquina, pero no es parte de nuestra corrida.
+
+---
+
 ## Entradas siguientes
 
 <!-- Formato: ## FECHA · Entrada N — Título breve
