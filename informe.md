@@ -5,14 +5,15 @@ ruta del **HTML compilado**.
 **Generador:** `qwen3:8b` en Ollama, `num_ctx = 8192` fijo en todas las etapas.
 **Pregunta del proyecto:** cómo se reparte una ventana finita entre lo que dice el corpus y lo que
 se dijo en la conversación.
-**Etapas hechas:** 0, 1, 2, 3 (acotada a 3 filas), 4, 5, 6. Sin Etapa 7.
+**Etapas hechas:** 0, 1, 2, 3 (5 escalones y 2 ramas), 4, 5, 6 y 7a (juez). Sin Etapa 7b.
 **Perfil de los números de este informe:** `full` salvo donde se diga `smoke`.
 
-> **Estado de este documento.** Las secciones 1-3 y 8 están cerradas: sus números salen de corridas
-> que ya existen (`artifacts/full/run_report.json`). Las secciones 4-7 son el esqueleto de las
-> etapas que todavía no corrieron en GPU: cada hueco dice **de qué archivo y de qué campo** sale el
-> número, para que llenarlo sea mecánico y no una segunda interpretación. Ningún hueco se llena a
-> ojo: si una corrida no existe, la fila dice «no corrió».
+> **Estado de este documento.** Todas las etapas corrieron en perfil `full` en la RTX 3050 el
+> 2026-10-31 (`tools/run_stages.py`, 4,7 h; `qwen3:8b` en SPLIT 30 % CPU / 70 % GPU durante las
+> Etapas 4-6). Los números de §4-7b salen de `artifacts/full/run_report.json` y de los
+> `stage*_rows.json`; las lecturas al lado de cada tabla son nuestras. Lo que sigue **PENDIENTE** son las lecturas a
+> mano que ningún script puede hacer (cajas abiertas, resúmenes, registros del almacén, auditoría del
+> juez) y §8; cada hueco dice de qué archivo sale.
 
 ---
 
@@ -34,7 +35,7 @@ Tres convenciones que valen para todas las tablas:
 
 ## 1 · Decisiones de diseño y su justificación
 
-El detalle, con fechas y alternativas descartadas, está en `decision_log.md` (7 entradas). Acá el
+El detalle, con fechas y alternativas descartadas, está en `decision_log.md` (8 entradas). Acá el
 resumen de las que condicionaron todo lo demás:
 
 | Decisión | Alternativa descartada | Qué nos llevó ahí |
@@ -43,7 +44,7 @@ resumen de las que condicionaron todo lo demás:
 | **Dos versiones (3.13 y 3.12), no una** | una sola versión | el corpus necesita documentos confundibles para que la recuperación tenga trabajo; las páginas gemelas comparten de 0,35 a 1,00 de 5-gramas (MinHash, Etapa 0) |
 | **Todo en una RTX 3050 de 6 GB** | el reparto híbrido con una T4 de Colab (plan original, Entrada 1) | cada etapa que cruza la frontera entre dos máquinas puede desalinear el `documents_sha256` o el `index_key`, y el chequeo que lo detecta corre *después* de gastar las llamadas. El costo: `qwen3:8b` no entra en 6 GB (~5,2 de pesos + ~1,2 de caché KV a 8.192), así que la corrida se reporta con lo que diga `llm.placement()` (Entrada 7) |
 | **Etapa 3 acotada a 3 filas** | el barrido completo de piezas | el presupuesto de la Entrada 1 no daba para más filas *y* llegar a la Etapa 6, que es donde está la pregunta del proyecto |
-| **Sin Etapa 7** | juez LLM + framework | «menos etapas bien razonadas» (rúbrica §5.2); el presupuesto se gastó en memoria |
+| **Etapa 7a sí, 7b no** | el framework (7b) | la 7a relee respuestas guardadas y no genera ninguna nueva: con todo en una placa es barata. La 7b es otra corrida completa de las Etapas 5-6 (Entrada 8) |
 | **`num_ctx = 8192` en TODAS las etapas** | ajustarlo por etapa | una fila que cambia la ventana no mide su estrategia de contexto, mide la ventana |
 | **El conjunto de evaluación congelado antes de cualquier resultado** | congelarlo al final | es lo único que hace que la división dev/test signifique algo (Entrada 5) |
 
@@ -75,7 +76,7 @@ resumen de las que condicionaron todo lo demás:
 
 El documento completo es `corpus_card.md` (va en el zip). Lo que no puede faltar acá:
 
-- **695 documentos**, `documents_sha256 = 6c58d2cf300c1ff61649139369495ff70ad8766b15acabd8af74a0d5228aa7c6`.
+- **695 documentos**, `documents_sha256 = 891cf14c62fc496a1809e557bdc55e12059fd8892ed3a2b3a6d78c900822cd38` (re-pin del 2026-10-31, Entrada 8; antes `6c58d2cf…`).
 - **Qué cambió la limpieza**, en caracteres (`run_report.json → 01_documents.notes.cleaning_chars`):
   marca `¶` → salto de línea **53.440**; firma partida (`pathlib. Path` → `pathlib.Path`)
   **14.148**; etiqueta de nota de versión al español **−10.314**; NFC **0**.
@@ -150,103 +151,156 @@ ser de la clave y no del sistema.
 
 ## 4 · Etapa 3 · La tabla de recuperación, con cotas de ruido
 
-**Estado: NO CORRIÓ en perfil `full`.** Código listo y limpio en humo.
-**Fuente cuando corra:** `artifacts/full/stage3_rows.json` y `artifacts/full/results/`.
+**Corrió en `full`** el 2026-10-31 (948 s, 0 llamadas al LLM). **Fuente:** `artifacts/full/stage3_rows.json`,
+`logs/03_retrieval.log`. 41 ítems de test con gold; 17.287 hijos y 6.826 padres en el índice;
+`budget_tokens = 3000` en todas las filas.
 
-| Fila | hit@k doc | hit@k sección | clave entregada | MRR doc | tokens entregados | ms |
-|---|---|---|---|---|---|---|
-| 1 · solo BM25 (línea de base) | | | | | | |
-| 2 · + denso (fusión) | | | | | | |
-| 3 · + reranker | | | | | | |
+| Fila | carácter | hit doc | hit sección | respuesta entregada | MRR@20 | tokens entregados | unidades | s/consulta |
+|---|---|---|---|---|---|---|---|---|
+| solo BM25 | base | 76 % | 59 % | 73 % | 0,558 | 2.947 | 11,4 | 0,00 |
+| solo denso | base | 78 % | 73 % | 83 % | 0,612 | 2.970 | 11,6 | 0,04 |
+| + prefijo | escalón | 76 % | 71 % | 85 % | 0,678 | 2.953 | 11,4 | 0,03 |
+| + léxico (RRF) | escalón | 80 % | 76 % | 83 % | 0,640 | 2.968 | 11,2 | 0,03 |
+| **+ rerank** (la mejor) | escalón | 78 % | 76 % | 83 % | 0,640 | 2.959 | 10,6 | 0,61 |
+| rama: + padre | rama | 76 % | 68 % | 85 % | 0,640 | 2.933 | 4,9 | 0,61 |
+| rama: + filtro de metadatos | rama | 78 % | 76 % | 83 % | 0,640 | 2.959 | 10,6 | 0,61 |
 
-- **Pareado contra la línea de base** (`noise.paired`): fila 2 vs 1 → `gana/pierde/empata`, `p` =
-  ; fila 3 vs 2 → .
-- **Qué pieza se ganó su costo por encima de la cota, y qué sacamos:** PENDIENTE.
-- **La caja abierta del movimiento más grande:** PENDIENTE — los ítems que cambiaron de resultado
-  están en `stage3_rows.json`; hay que leer 3 y decir si ganó por la razón que da su paper.
-- **Brecha documento vs sección:** PENDIENTE, y qué predice para la Etapa 4.
-- **Tokens igualados: muchos hijos o pocos padres:** PENDIENTE (las filas se llenan al mismo
-  `budget_tokens = 3000`, contados en el tokenizador del generador; la tabla imprime los tokens
-  realmente entregados y advierte si dos filas difieren).
-- **El filtro de metadatos:** PENDIENTE, por categoría. Nota de diseño que ya está decidida: el
-  filtro de la Etapa 3 **cae al listado sin filtrar** (`fused = kept or fused`) porque una versión
-  que el usuario tipeó puede ser un error de tecleo. Comparar con §7.
+- **Pareado, hit a nivel sección** (`noise.paired`, n = 41): denso vs BM25 **7 / 1 / 33, p = 0,070**;
+  + prefijo vs denso 1 / 2 / 38, p = 1,0; + léxico vs + prefijo 4 / 2 / 35, p = 0,69; + rerank vs
+  + léxico 4 / 4 / 33, p = 1,0; + padre vs + rerank 1 / 4 / 36, p = 0,38; + filtro vs + rerank
+  0 / 0 / 41.
+- **Qué pieza se ganó su costo por encima de la cota: ninguna.** Hacen falta 6 discordantes todos
+  para el mismo lado; el más cerca es el paso de BM25 a denso (7 a 1, p = 0,07), que es también el
+  único movimiento grande de la tabla. El rerank cuesta 20 veces más tiempo por consulta (0,61 s
+  contra 0,03) y empata 4 a 4: a esta escala no se gana su costo, y la fila «mejor» lo es por
+  empate, no por diferencia.
+- **El movimiento más grande dentro de los escalones:** «+ padre» vs «+ rerank» (1 ganada, 4
+  perdidas en sección). *La caja abierta —leer esos ítems y decir si perdió por la razón que
+  predice su paper— queda PENDIENTE de una persona* (`stage3_rows.json` y el log).
+- **Brecha documento → sección → respuesta entregada** en la mejor fila: **78 % → 76 % → 83 %**.
+  La respuesta llega más seguido que la sección gold, porque la misma clave aparece en la sección
+  gemela de la otra versión o en una vecina. Lo que predice para la Etapa 4: el techo de la
+  generación es **83 %**, no 78 %.
+- **Tokens igualados: muchos hijos o pocos padres.** Al mismo presupuesto, «+ padre» entrega 4,9
+  unidades en vez de 10,6: gana 2 puntos en respuesta entregada (85 %) y pierde 8 en sección
+  (68 %). Ninguna de las dos diferencias pasa la cota.
+- **El filtro de metadatos** se disparó en **0** de las preguntas que nombran una versión que el
+  corpus tiene, así que su fila es idéntica a «+ rerank» (0 / 0 / 41). Recordatorio de diseño: el
+  filtro de la Etapa 3 **cae al listado sin filtrar** (`fused = kept or fused`). Comparar con §7.
+- El reranker no truncó ningún par (0 / 450).
 
 ---
 
 ## 5 · Etapa 4 · Respuestas fundamentadas, y la tabla 2×2
 
-**Estado: NO CORRIÓ.** `04_generation.py` escrito y verificado estáticamente.
-**Fuente cuando corra:** `artifacts/full/stage4_rows.json`.
+**Corrió en `full`** (4.970 s, 215 llamadas). `qwen3:8b` en **SPLIT 30 % CPU / 70 % GPU**, 6,0 GB,
+contexto 8.192 (`llm.placement`). **Fuente:** `artifacts/full/stage4_rows.json`.
 
-| Fila | correctas | abstenciones | citas ⊆ entregados | citó el gold | fallos | tokens de prompt |
-|---|---|---|---|---|---|---|
-| libro cerrado (sin pasajes) | | | | | | |
-| recuperación (la mejor fila de la Etapa 3) | | | | | | |
-| oráculo (la sección gold directo) | | | | | | |
+| Fila | correctas (IC95) | abstuvo | abstuvo bien (fuera del corpus) | citas ⊆ entregados | citó el gold | fallos | tokens de prompt | s/resp. |
+|---|---|---|---|---|---|---|---|---|
+| libro cerrado (sin pasajes) | **0 %** (0-0) | 100 % | 4/4 | — | 0 % | 0 | 216 | 4,6 |
+| mejor recuperación («+ rerank») | **59 %** (44-73) | 12 % | 4/4 | 100 % | 66 % | 0 | 3.351 | 44,0 |
+| oráculo (la sección gold directo) | **68 %** (54-83) | 5 % | 4/4 | 100 % | 98 % | 0 | 1.455 | 16,4 |
 
-**La tabla 2×2** — llegó el pasaje × respondió bien:
+**La tabla 2×2**, en la fila de mejor recuperación (41 ítems con respuesta):
 
 | | respondió bien | respondió mal / se abstuvo |
 |---|---|---|
-| **el pasaje llegó** | | |
-| **el pasaje no llegó** | | |
+| **la clave llegó** | 23 | **8** («lo tenía y falló») |
+| **la clave no llegó** | 1 | **9** (fiel al pasaje equivocado, o se abstuvo) |
 
-- **De las preguntas donde llegó el pasaje, cuántas se contestaron bien y cómo eran las fallas:**
-  PENDIENTE (las fallas se clasifican con las columnas `inconsistent`, `verdict_ok`,
-  `key_contained` de `prompting.score`, sin juez).
-- **Brecha oráculo − mejor recuperación**, y **mejor recuperación − libro cerrado:** PENDIENTE.
-  Es la medida de cuánto del techo alcanza la generación.
-- **Citas inventadas y abstenciones con la respuesta en contexto:** PENDIENTE
-  (`cited_not_delivered`, y `abstained` con `key_contained = True`).
-- **Un prompt demasiado grande:** PENDIENTE — nuestra cuenta (`expected_prompt_tokens`), la del
-  servidor (`prompt_tokens`), y qué contestó. La guarda de pre-vuelo convierte el desborde en un
-  `ChatResult` con `error`, que es **su propia categoría**: ni abstención ni respuesta mal.
-- **La posición:** PENDIENTE, y si la prueba podía mostrarlo a nuestra escala.
+- **Mejor recuperación − libro cerrado: +59 puntos**, pareado 24 / 0 / 17, p < 0,001. Sobrevive con
+  holgura. Y libro cerrado da **0 %** porque el modelo se abstiene en todos: el prompt le pide
+  responder desde el contexto y, sin pasajes, obedece. *No* mide cuánto de Python sabe el modelo;
+  mide que la instrucción de abstención funciona.
+- **Oráculo − mejor recuperación: +10 puntos**, pareado 8 / 4 / 29, p = 0,39. **No sobrevive** a la
+  cota: con 41 ítems no podemos afirmar que arreglar el recuperador gane algo.
+- **De las 31 donde llegó la clave, 23 bien y 8 mal** (74 %). Las 8 fallas se clasifican con
+  `key_contained`, `verdict_ok` e `inconsistent`; leerlas una por una queda *PENDIENTE de una
+  persona*. Contra el techo de la Etapa 3 (83 %), la generación alcanza 59 %: la mayor parte de lo
+  que se pierde se pierde en la generación, no en la recuperación.
+- **Citas inventadas: 0** (todas las citas son de pasajes entregados). **Abstenciones con la
+  clave en el contexto: 2** (`t-yield`, `id-mod-makeRecord`). **Inconsistencias** entre el
+  booleano y el texto: **0**.
+- **Un prompt demasiado grande (§5 del notebook):** nuestra cuenta **3.311** tokens, el servidor
+  evaluó **1.026**: `SILENT_TRUNCATION`. Con la guarda prendida el mismo prompt no se manda
+  (`ContextOverflow`); con la guarda apagada el servidor descarta el medio sin error. La falla es
+  su propia categoría: ni abstención ni respuesta mal.
+- **La posición:** primero vs último 3 / 0 / 28, p = 0,25; primero vs medio igual. Hacen falta 6
+  discordantes y hubo 3: **a esta escala la prueba no podía mostrarlo** salvo un efecto enorme
+  (~10 pasajes en 3.000 tokens).
 
 ---
 
 ## 6 · Etapa 5 · Una ventana, dos fuentes
 
-**Estado: NO CORRIÓ.** `05_dialogue.py` escrito y verificado estáticamente.
-**Fuente cuando corra:** `artifacts/full/stage5_rows.json`, `stage5_rewrites.txt`,
-`stage5_summaries.txt`.
+**Corrió en `full`** (4.021 s, 197 llamadas; mismo placement que la Etapa 4). **Fuente:**
+`artifacts/full/stage5_rows.json`, `stage5_rewrites.txt`, `stage5_summaries.txt`. 29 turnos de test
+en 8 guiones.
 
 ### 5A · La consulta dentro de la conversación, por dependencia y por turno
 
-| Configuración | sin dependencia | correferencia | elipsis | cambio de tema | turno 1 | turno 4 |
-|---|---|---|---|---|---|---|
-| último turno solo | | | | | | |
-| últimos k turnos concatenados | | | | | | |
-| reescritura por el modelo | | | | | | |
-| reescritura oráculo | | | | | | |
+hit@10 a nivel **sección**:
 
-- **Qué ganó en qué dependencia, y si el ranking cambia con el número de turno:** PENDIENTE.
-- **Dónde perdió la reescritura oráculo contra la del modelo, o le ganó:** PENDIENTE (hay 20
-  reescrituras volcadas para leer a mano).
+| Configuración | todas | sin dependencia (8) | correferencia (10) | elipsis (7) | cambio de tema (2) | vuelta (2) | turno 1 | turno 4 (5) | llamadas |
+|---|---|---|---|---|---|---|---|---|---|
+| último turno solo | 59 % | 75 % | 50 % | 43 % | 100 % | 50 % | 75 % | 40 % | 0 |
+| conversación completa | 62 % | 75 % | 50 % | 57 % | 100 % | 50 % | 75 % | 40 % | 0 |
+| reescritura por el modelo | 59 % | 75 % | 50 % | 43 % | 100 % | 50 % | 75 % | 40 % | 32 |
+| **reescritura oráculo** | **86 %** | 75 % | **90 %** | **86 %** | 100 % | 100 % | 75 % | **100 %** | 0 |
+
+- **Pareado contra «último turno»**: oráculo **9 / 1 / 19, p = 0,021 (sobrevive)**; conversación
+  completa 4 / 3 / 22, p = 1,0; reescritura del modelo **0 / 0 / 29**.
+- **Qué ganó en qué dependencia:** la reescritura oráculo gana justo donde el turno depende del
+  historial (correferencia 50 → 90 %, elipsis 43 → 86 %) y empata donde no (sin dependencia, 75 %).
+  **El ranking cambia con el turno**: en el turno 1 las cuatro empatan (75 %), y en el turno 4 el
+  último turno cae a 40 % mientras el oráculo llega a 100 %.
+- **La reescritura del modelo no hizo nada.** 0 discordantes contra el último turno, la misma
+  mediana de tokens (13): a juzgar por eso, `qwen3:8b` devolvió casi siempre la pregunta tal cual. Contra el oráculo
+  perdió en 9 turnos y ganó en 1 (`d-fechas#2`). De las 32 reescrituras, 2 *responden* en vez de
+  reformular (`rewrite_proxies`). Leer las 20 volcadas en `stage5_rewrites.txt` para decir **por
+  qué** queda *PENDIENTE de una persona*. Hallazgo: la brecha oráculo − modelo (+27 puntos) es lo
+  que vale una buena reescritura, y nuestro prompt de reescritura no la captura.
 
 ### 5B · El reparto de la ventana
 
-| pasajes / historial | correctas | tokens de prompt | llamadas por turno |
-|---|---|---|---|
-| | | | |
+1.400 tokens compartidos; la consulta es la reescritura oráculo (la ganadora de 5A). Nuestra cuenta
+y la del servidor coinciden en todos los brazos (máx. 4 tokens de diferencia): nadie truncado.
 
-- **Dónde quedó la mejor división, y si la diferencia pasa la cota de ruido:** PENDIENTE.
-- **Qué hicieron mal los resúmenes**, en las tres categorías de Wang et al. (hechos inventados,
-  relaciones equivocadas, detalles faltantes): PENDIENTE **de una persona** —
-  `stage5_summaries.txt` → `stage5_summary_audit.json`.
-- **Costo por turno de cada estrategia, y si el ganador vale la pena:** PENDIENTE.
+| pasajes / historial | estrategia | correctas (IC95 por guion) | tokens de historial | pasajes | llamadas/turno | s/turno |
+|---|---|---|---|---|---|---|
+| 80/20 (1.120 / 280) | completo | 69 % (54-80) | 221 | 4,2 | 1,00 | 29,7 |
+| **50/50 (700 / 700)** | completo | **76 %** (55-90) | 404 | 2,3 | 1,00 | 20,1 |
+| 30/70 (420 / 980) | completo | 62 % (39-77) | 426 | 1,3 | 1,00 | 16,4 |
+| 80/20 | ventana de 2 turnos | 66 % (52-78) | 52 | 4,2 | 1,00 | 24,5 |
+| 80/20 | resumen | 69 % (54-80) | 135 | 4,2 | 1,25 | 15,8 |
+
+- **La mejor división es 50/50, y no pasa la cota.** Pareado por guion contra 80/20: 3 / 1 / 4,
+  p = 0,63; 30/70 vs 80/20: 0 / 2 / 6, p = 0,5. Con 8 guiones el test de signos no puede bajar de
+  0,05 con menos de 6 discordantes para el mismo lado: el nulo es **«la prueba no podía
+  mostrarlo»**, no «no hay diferencia». La forma de la curva (sube de 80/20 a 50/50, cae a 30/70)
+  es la que predice el enunciado, pero acá es una forma, no un resultado.
+- A 80/20 el historial completo se recorta en 21 de 32 turnos; a 50/50 en 7; a 30/70 en 0. A 30/70
+  sobra historial y faltan pasajes (1,3 por turno).
+- **Estrategias de historial, con la división fija en 80/20** (donde el historial escasea): ventana
+  de 2 turnos 0 / 1 / 7; resumen 0 / 0 / 8. Ninguna se distingue del historial completo.
+- **Costo por turno:** el resumen agrega 0,25 llamadas por turno (8 resúmenes escritos) y usa 135
+  tokens de historial contra 221 del completo, con la misma exactitud. Es el único brazo que
+  ahorra ventana sin perder nada medible, pero a esta escala no hay nada que ahorrar: ningún guion
+  llena la ventana.
+- **Qué hicieron mal los resúmenes** (hechos inventados, relaciones equivocadas, detalles
+  faltantes; Wang et al.): *PENDIENTE de una persona* — `stage5_summaries.txt` →
+  `stage5_summary_audit.json`.
 
 ---
 
 ## 7 · Etapa 6 · Memoria entre sesiones
 
-**Estado: NO CORRIÓ.** `06_memory.py` escrito; verificado con 32 controles sobre las partes que no
-necesitan GPU (vigencia, vecinos, presupuesto de lectura, filtro de versión, solapamiento con la
-fuente). **El diseño y sus justificaciones están cerrados** (Entrada 6 del registro) y no dependen
-del resultado: eso es lo que sigue.
-**Fuente cuando corra:** `artifacts/full/stage6_rows.json`, `stage6_records.txt`,
-`stage6_filter.txt`, `memory/records.jsonl`, `memory/ops.jsonl`.
+**Corrió en `full`** (2.736 s, 127 llamadas; mismo placement). **El diseño y sus justificaciones
+estaban cerrados antes de correr** (Entrada 6 del registro) y no se tocaron después de ver el
+resultado. **Fuente:** `artifacts/full/stage6_rows.json`, `stage6_records.txt`,
+`stage6_filter.txt`, `memory/records.jsonl`, `memory/ops.jsonl`. 3 escenarios de test, 8 sesiones,
+19 sondas (16 con respuesta, 3 «nunca dicho»).
 
 ### El régimen, declarado antes de medir
 
@@ -269,53 +323,73 @@ menos una.
 
 ### Los brazos, y los resultados
 
-| Brazo | correctas | tokens de prompt | llamadas de escritura | sesiones en el espacio |
-|---|---|---|---|---|
-| sin memoria | | | 0 | 0 |
-| reproducción · 400 | | | 0 | |
-| reproducción · 120 | | | 0 | |
-| almacén · 400 | | | | |
-| almacén · 120 | | | | |
-| almacén · 400 + filtro de versión | | | | |
+| Brazo | correctas | abstuvo bien | tokens del espacio | recuerdos | tokens de prompt | sondas con toda su evidencia |
+|---|---|---|---|---|---|---|
+| sin memoria | 5/16 | 3/3 | 0 | 0 | 1.356 | 0/16 |
+| reproducción · 400 | **7/16** | 3/3 | 183 | — | 1.539 | 16/16 |
+| reproducción · 120 | 4/16 | 3/3 | 103 | — | 1.460 | 8/16 |
+| almacén · 400 | 6/16 | 3/3 | 199 | 4,7 | 1.556 | 16/16 |
+| almacén · 120 | 6/16 | 3/3 | 107 | 2,3 | 1.464 | 14/16 |
+| almacén · 400 + filtro de versión | 2/6 | — | 191 | 4,5 | 1.406 | 6/6 |
+
+Escritura del almacén: **28 llamadas, 12.022 tokens**, 18 registros (14 semánticos, 3
+procedimentales, 1 episódico), operaciones ADD 15 · UPDATE 3 · INVALIDATE 1 · NOOP 1, 4 registros
+cerrados, 0 rechazados.
 
 **Por habilidad** (en cuentas, nunca en porcentaje):
 
-| Habilidad | sin memoria | reproducción · 400 | almacén · 400 |
-|---|---|---|---|
-| extracción | | | |
-| temporal | | | |
-| actualización de conocimiento | | | |
-| multi-sesión | | | |
-| abstención | | | |
-| preferencia | | | |
+| Habilidad | sin memoria | reproducción · 400 | reproducción · 120 | almacén · 400 | almacén · 120 |
+|---|---|---|---|---|---|
+| extracción (4) | 1/4 | 1/4 | 1/4 | 1/4 | 1/4 |
+| temporal (4) | 0/4 | 1/4 | 0/4 | 1/4 | 1/4 |
+| actualización de conocimiento (3) | 1/3 | 1/3 | 0/3 | 1/3 | 1/3 |
+| multi-sesión (3) | 1/3 | 2/3 | 1/3 | 2/3 | 2/3 |
+| abstención (3) | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 |
+| preferencia (2) | 2/2 | 2/2 | 2/2 | 1/2 | 1/2 |
 
-- **En qué habilidades la memoria le ganó a no tener memoria, y en cuáles la reproducción le ganó
-  al almacén, con qué costo en tokens:** PENDIENTE. El costo se informa como **punto de
-  equilibrio**: `tokens_de_escritura / tokens_ahorrados_por_sonda` = cuántas sondas hay que hacer
-  para amortizar la escritura.
-- **Una actualización de conocimiento de punta a punta:** PENDIENTE — el notebook la imprime
-  entera (la línea de tiempo del registro, las operaciones que lo escribieron, y qué contestó cada
-  brazo). Lo que **ya** está decidido: se **invalida, no se borra** (UPDATE le pone `valid_to` al
-  viejo y escribe uno nuevo con `supersedes`), así que la vista «al momento de la sonda» sale de
-  comparar timestamps simulados, sin una segunda copia del almacén.
-- **Qué guardó el extractor que no era cierto o que no se dijo:** PENDIENTE **de una persona** —
-  `stage6_records.txt` → `stage6_record_audit.json`. Ningún script puede decidir si un recuerdo es
-  cierto. Lo que el script sí cuenta: marcas de razonamiento en el texto del registro, coberturas
-  («probablemente», «supongo»), y el solapamiento de palabras de contenido con la sesión de
-  origen. El campo `analysis` existe en los dos schemas, va **primero**, y **no se copia nunca** al
-  registro: es la trampa de guardar una hipótesis como hecho.
-- **¿La memoria mejoró la recuperación como filtro, o la perjudicó?** Lo perjudicó, y está medido
-  antes de correr el generador: el usuario de `s-etl` arranca en Python **3.11**, el corpus solo
-  tiene 3.12 y 3.13, así que `allow_for("3.11")` devuelve el conjunto **vacío** y `retrieve`
-  entrega **cero** pasajes. Es la señal, no un error: un filtro de memoria que deja cero debe dejar
-  cero. Lo que elimina es justamente el pasaje de `itertools` de 3.12 con el que el asistente
-  podría decir «eso no existe en tu versión». Es la política **opuesta** a la del filtro de la
-  Etapa 3 (§4), y las dos se justifican: una versión que el **usuario tipeó** puede ser un error de
-  tecleo; una versión que el **sistema guardó** es una afirmación propia sobre su usuario.
-- **¿En qué punto el escenario deja de entrar en la ventana, y qué cambia?** No deja de entrar. A
-  56 tokens por sesión, la transcripción cruza el espacio de 400 a las ~7 sesiones y el lugar que
-  queda en la ventana (`8192 − 700 de reserva − prompt vacío − 1000 de pasajes`) a las ~90. Por eso
-  hay dos regímenes en vez de una afirmación sobre un cruce que estos escenarios no tienen.
+**Por régimen** (el único corte que hace contrastable la predicción de Mem0):
+
+| | sin memoria | reproducción · 400 | reproducción · 120 | almacén · 400 | almacén · 120 |
+|---|---|---|---|---|---|
+| la reproducción entra en 120 (4) | 2/4 | 2/4 | 2/4 | 1/4 | 1/4 |
+| la reproducción NO entra en 120 (12) | 3/12 | 5/12 | 2/12 | 5/12 | 5/12 |
+
+- **Ninguna comparación pasa la cota.** Reproducción · 400 vs sin memoria 2 / 0 / 14 (p = 0,5);
+  almacén · 400 vs reproducción · 400 0 / 1 / 15; almacén · 120 vs reproducción · 120 **3 / 1 / 12**
+  (p = 0,63). Con 16 sondas hacen falta 6 discordantes para el mismo lado, y las sondas de un
+  escenario comparten persona y almacén: no son independientes.
+- **Lo que sí se ve, como forma:** en el régimen ancho la reproducción entera es la mejor fila
+  (7/16), como en la evaluación de Mem0. En el angosto, donde la transcripción no entra, la
+  reproducción cae a 4/16 (por debajo de no tener memoria) y el almacén **no cae** (6/16): conserva
+  la evidencia de 14 de 16 sondas contra 8 de 16. Es la dirección que predice Mem0, con 3 a 1
+  discordantes.
+- **Dónde ganó la memoria:** multi-sesión (1/3 → 2/3) y temporal (0/4 → 1/4). **Dónde perdió el
+  almacén contra la reproducción:** preferencia (2/2 → 1/2). Abstención es 3/3 en todos los
+  brazos: el «nunca dicho» no se inventa.
+- **El costo, como punto de equilibrio:** el almacén **no ahorra** tokens de prompt a esta escala
+  (1.556 contra 1.539 de la reproducción: −17 por sonda) y costó 12.022 tokens escribirlo, así que
+  **no se amortiza nunca** con transcripciones de 56 tokens por sesión. La ventaja de costo de Mem0
+  aparece cuando la transcripción es grande.
+- **Una actualización de conocimiento de punta a punta:** el notebook la imprime entera (la línea
+  de tiempo del registro, las operaciones que lo escribieron y qué contestó cada brazo). Se
+  **invalida, no se borra** (UPDATE le pone `valid_to` al viejo y escribe uno nuevo con
+  `supersedes`).
+- **Qué guardó el extractor que no era cierto o que no se dijo:** los chequeos mecánicos dan 0
+  marcas de razonamiento, 0 coberturas («probablemente»), 0 filtraciones de `</think>`, 2 registros
+  con solapamiento bajo con su sesión de origen y **4 `subjects` con dos valores vigentes** (un
+  UPDATE que el extractor no hizo). El conteo de falsos y nunca dichos es *PENDIENTE de una
+  persona* — `stage6_records.txt` → `stage6_record_audit.json`.
+- **¿La memoria mejoró la recuperación como filtro, o la perjudicó?** La perjudicó, de las dos
+  maneras posibles, medidas: en **1** sonda el filtro dejó **cero** candidatos (el usuario de
+  `s-etl` está en 3.11 y el corpus solo tiene 3.12 y 3.13) y en **2** sacó el pasaje gold, que
+  estaba en otra versión que la del usuario. En las 6 sondas con gold el brazo filtrado empata con
+  el sin filtro (0 / 0 / 6, 2/6 cada uno): a esta escala el daño al recuperador no llegó a la respuesta.
+  Es la política **opuesta** a la del filtro de la Etapa 3 (§4), y las dos se justifican: una
+  versión que el **usuario tipeó** puede ser un error de tecleo; una versión que el **sistema
+  guardó** es una afirmación propia sobre su usuario.
+- **¿En qué punto el escenario deja de entrar en la ventana?** No deja de entrar. A 56 tokens por
+  sesión, la transcripción cruza el espacio de 120 a las ~1,6 sesiones, el de 400 a las ~6,5 y el
+  lugar que queda en la ventana a las ~110. Por eso hay dos regímenes.
 
 ### El hallazgo que no esperábamos (contribución original)
 
@@ -323,9 +397,47 @@ La fórmula de puntaje que sugiere el enunciado —`minmax(recencia) + minmax(im
 minmax(relevancia)`— **se degrada a dos términos y un bonus** cuando las sesiones están separadas
 por meses, que es el caso realista de un asistente personal. Con `0.995/hora`, el registro más
 nuevo puntúa ~1 de recencia y el segundo ~2e-4: después del min-max eso **no es un orden por
-antigüedad, es un one-hot del último registro**. Los rangos de los tres términos se imprimen
-**antes** de normalizar (el chequeo que el enunciado pide) y el informe lo dice así, en vez de
-hablar de «tres señales combinadas».
+antigüedad, es un one-hot del último registro**. Medido en la corrida: la recencia tuvo rango
+exactamente 0 en 6 sondas, y en las demás va de 0 a 0,89 con todo el peso en un registro.
+
+---
+
+## 7b · Etapa 7a · Un juez, calibrado antes de leerlo
+
+**Corrió en `full`** (3.876 s, 676 llamadas). **Fuente:** `artifacts/full/stage7_rows.json`,
+`results/07_judge.jsonl`, `stage7_audit.txt`. El juez **relee** las respuestas guardadas de las
+Etapas 4-6 y no genera ninguna: **396 casos** (135 de la Etapa 4, 160 de la 5, 101 de la 6), todos
+con referencia (rúbricas: 327 clave, 42 abstención, 16 actualización, 11 preferencia). Dos jueces
+en pasadas separadas, `num_ctx = 4096`, temperatura 0: `qwen3:8b` (**el mismo modelo que
+generó**; SPLIT 25 / 75) y `granite3.3:8b` (IBM, **otra familia**; SPLIT 24 / 76).
+
+**Cada juez contra la contención:**
+
+| Juez | n | juez sí · cont. sí | juez sí · cont. no | juez no · cont. sí | juez no · cont. no | acuerdo |
+|---|---|---|---|---|---|---|
+| mismo modelo (`qwen3:8b`) | 396 | 206 | 41 | 16 | 133 | **85,6 %** |
+| otra familia (`granite3.3:8b`) | 396 | 205 | 75 | 17 | 99 | **76,8 %** |
+
+Por etapa, el juez propio acuerda 86,7 % (E4) · 83,1 % (E5) · 88,1 % (E6); Granite 76,3 % · 79,4 % ·
+73,3 %. Por rúbrica, el desacuerdo se concentra en **actualización de conocimiento**: 43,8 % de
+acuerdo con el juez propio y 25,0 % con Granite, casi todo «juez sí / contención no».
+
+- **Autopreferencia: no aparece en la dirección esperada.** Sobre los mismos 396 casos, el juez
+  propio aprueba **247** y el de otra familia **280**. Pareado: 50 casos que solo aprueba Granite
+  contra 17 que solo aprueba Qwen, p < 0,001. Si Qwen favoreciera sus propias respuestas, la
+  asimetría iría al revés. Lo que la tabla muestra es que **Granite es más indulgente**: 75 de sus
+  «sí» van contra la contención, contra 41 del juez propio. Que no haya autopreferencia visible no
+  prueba que no exista: puede estar tapada por un juez ajeno más indulgente. La auditoría a mano
+  es lo que separa las dos lecturas.
+- **Dónde el juez no coincidió con la contención:** sobre todo en «juez sí / contención no» (41 y
+  75 casos). Es la celda donde un juez puede corregir paráfrasis que la contención castiga, o
+  aprobar respuestas que no dicen la clave. En la rúbrica de actualización la sospecha es lo
+  segundo: los dos jueces aprueban respuestas que dan el valor viejo o no lo dan. Hay que leerlo
+  antes de afirmarlo.
+- **En cuál confiar: todavía en la contención.** La matriz contra una persona es *PENDIENTE*:
+  `stage7_audit.txt` tiene **79 casos** (max(30, 20 %)), empezando por todos los desacuerdos del juez
+  propio con la contención, y el veredicto propio se carga en `stage7_audit.json`. Hasta que esté,
+  el juez es una alarma sobre la contención, no un reemplazo.
 
 ---
 

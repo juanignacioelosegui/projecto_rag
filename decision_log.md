@@ -537,6 +537,55 @@ porque las notebooks tienen que poder abrirse en otra máquina, pero no es parte
 
 ---
 
+## 2026-10-31 · Entrada 8 — Re-pin del corpus y una Etapa 7a
+
+### El zip se recompiló: re-pin, y por qué no invalida el conjunto congelado
+
+**Qué pasó.** Al correr todo desde cero en la 3050, la Etapa 1 se paró donde tenía que pararse:
+`on_mismatch="raise"` encontró que los dos zips (`python-3.13-docs-html-es.zip`,
+`python-3.12-docs-html-es.zip`) ya no tienen el sha256 del 2026-10-24. Upstream recompila en el
+mismo lugar (la `corpus_card.md` ya lo había medido una vez) y los zips del 24 no estaban en esta
+máquina, así que no había forma de volver a ese corpus exacto.
+
+**Qué cambió del texto, medido.** Con los zips nuevos, `documents.jsonl` sale con 695 documentos,
+5.614 secciones y los mismos contadores de limpieza que reporta el informe §2 (53.440 caracteres de `¶`,
+14.148 de firmas partidas), pero con otro hash: `6c58d2cf…` → `891cf14c…`. El cambio existe y es
+chico; sin los documentos viejos no se puede decir dónde está.
+
+**Por qué alcanza con re-congelar.** El candado de `load_eval` protege una cosa: que los ids gold
+congelados sigan apuntando al mismo texto. Eso se verificó directamente: la Etapa 2 **re-derivó
+el conjunto entero desde el corpus nuevo** —cada id gold resuelto, cada clave verificada por
+contención contra su sección, cada término fuera del corpus verificado ausente— y los tres
+`.jsonl` salieron **idénticos** a los commiteados (`git diff eval/` vacío salvo
+`documents_sha256` en `FROZEN.json`). Ninguna pregunta, clave, gold ni división cambió, y no había
+ningún resultado full en esta máquina contra el que el cambio pudiera mezclarse.
+
+**Qué se tocó.** `PINNED` y `DOWNLOADED_ON` en `01_documents.py`, los dos sha256 y la fecha en
+`corpus_card.md`, y `eval/FROZEN.json` (solo `documents_sha256`). Es una edición del conjunto
+congelado y por eso es esta entrada.
+
+### La Etapa 7a: un juez sobre las respuestas guardadas
+
+**Qué cambia respecto de la Entrada 1.** La Entrada 1 dejaba la Etapa 7 afuera para gastar el
+presupuesto en memoria. Con todo corriendo en una sola placa, la 7a es barata: **no genera ni una
+respuesta nueva**, relee las filas de `04_generation`, `05_dialogue_b` y `06_memory` con
+`num_ctx = 4096` y 400 tokens de salida. La 7b (reimplementar el loop en un framework) sigue
+afuera: es otra corrida completa de las Etapas 5-6.
+
+**Qué juez y por qué dos.** El principal es `qwen3:8b`, el **mismo modelo que generó**: la
+autopreferencia se nombra en vez de esquivarla. Una segunda pasada, separada, usa
+`granite3.3:8b` (IBM, otra familia, tokenizer público en HuggingFace, así que los chequeos de
+contexto de `llm.chat` siguen activos). La asimetría pareada entre los dos jueces es la medida
+de autopreferencia; la lectura a mano de max(30, 20 %) juicios es lo que decide quién tiene
+razón, y queda **pendiente de una persona** como la auditoría de la Etapa 6.
+
+**Lo que el juez no ve.** Ni el contexto recuperado (esto no mide fidelidad al pasaje) ni qué
+brazo produjo la respuesta. La rúbrica cambia por tipo de ítem: clave, abstención, actualización
+de conocimiento (vale el valor vigente) y preferencia. Los ítems sin clave se juzgan pero quedan
+fuera de la matriz contra la contención, que ahí da «correcta» por defecto.
+
+---
+
 ## Entradas siguientes
 
 <!-- Formato: ## FECHA · Entrada N — Título breve

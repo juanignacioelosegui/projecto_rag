@@ -1014,7 +1014,8 @@ GOLD_IDS = [f"{s.scenario_id}#{p.probe_id}" for s, p in GOLD_PROBES]
 # %%
 def counts(arm: str, ids: list[str], field: str = "correct") -> tuple[int, int]:
     """Conteos, no porcentajes: con 19 sondas un porcentaje esconde el denominador."""
-    vals = [ROWS[arm][i][field] for i in ids if i in ROWS[arm]]
+    # .get: una fila «fallo» (sin JSON parseable) no tiene los campos de la respuesta
+    vals = [ROWS[arm][i].get(field) for i in ids if i in ROWS[arm]]
     vals = [v for v in vals if v is not None]
     return sum(bool(v) for v in vals), len(vals)
 

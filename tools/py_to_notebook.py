@@ -55,7 +55,8 @@ STAGE_STEMS = (
     "03_retrieval",
     "04_generation",   # nuestros nombres: el enunciado sugería 04_grounded_answers / 05_conversation
     "05_dialogue",
-    "06_memory",       # sin Etapa 7: el plan de la Entrada 1 del registro la deja afuera
+    "06_memory",
+    "07_second_read",  # solo la 7a (el juez); la Entrada 8 del registro dice por qué no la 7b
 )
 STAGES: dict[str, tuple[Path, Path]] = {s: (ROOT / f"{s}.py", ROOT / f"{s}.ipynb") for s in STAGE_STEMS}
 

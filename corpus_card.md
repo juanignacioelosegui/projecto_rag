@@ -7,7 +7,7 @@ Etapa 1 corrigió a la Etapa 0, queda dicho cuál era el error.
 
 **El corpus, en una línea.** 695 documentos (335 de 3.13 + 360 de 3.12), 5.614 secciones,
 3.474.559 tokens del generador, `corpus_sha256`
-`6c58d2cf300c1ff61649139369495ff70ad8766b15acabd8af74a0d5228aa7c6`.
+`891cf14c62fc496a1809e557bdc55e12059fd8892ed3a2b3a6d78c900822cd38` (re-pin del 2026-10-31; antes `6c58d2cf…`, ver `decision_log.md`, Entrada 8).
 
 ---
 
@@ -21,9 +21,9 @@ Documentación oficial de Python traducida al español, en su forma **compilada 
 | origen | `https://docs.python.org/es/{v}/archives/python-{v}-docs-html.zip` |
 | versiones | 3.13 (corpus principal) y 3.12 (distractor de versión) |
 | subdirectorios | `library/`, `builtins/`, `tutorial/`, `howto/`, `reference/`, `faq/` |
-| fecha de descarga | 2026-10-24 |
-| sha256 3.13 | `59f4ffeee535aacf14786d7960b829aa047ea26d4aa76f9a841fce5d1fb3db67` |
-| sha256 3.12 | `ed1d2613c23620f83525a0453495fed896b0812ccc0a3e7393917dd5ba90b59d` |
+| fecha de descarga | 2026-10-31 (re-pin; la del 2026-10-24 está en `decision_log.md`, Entrada 8) |
+| sha256 3.13 | `ff2a1638c5cec8948d7e7031333286f4e61cc0d381e357a67e2da09b10ce4301` |
+| sha256 3.12 | `63dd937d67809ed8fe8343acd31dc509eabeb7c654e64384e25a833f3e0dc98c` |
 | parser | `corpus_html.py` (un módulo, no una celda: la Etapa 0 y la Etapa 1 leen las páginas igual) |
 
 **El pin es el sha256, no la URL.** El zip se recompila *en el mismo lugar*: de los dos

@@ -1252,7 +1252,7 @@ from schema import EvalChanged
 path = EVAL / "single_turn.jsonl"
 backup = path.read_text(encoding="utf-8")
 try:
-    with path.open("a", encoding="utf-8") as fh:
+    with path.open("a", encoding="utf-8", newline="\n") as fh:
         fh.write(json.dumps({"item_id": "no-deberia-estar", "question": "x",
                              "category": "topical", "gold": [], "answerable": False}) + "\n")
     try:
@@ -1261,7 +1261,7 @@ try:
     except EvalChanged as e:
         print(f"OK -- el candado mordió: {clip(str(e), 150)}")
 finally:
-    path.write_text(backup, encoding="utf-8")
+    path.write_text(backup, encoding="utf-8", newline="\n")   # sin newline, Windows restaura con CRLF
 load_eval(EVAL, documents_path=FULL / "documents.jsonl")
 print("restaurado: load_eval vuelve a cargar")
 

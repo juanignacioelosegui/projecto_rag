@@ -48,16 +48,16 @@ GENERATOR = "qwen3:1.7b" if SMOKE_TEST else "qwen3:8b"
 VERSIONS = ("3.13", "3.12")
 CURRENT = "3.13"          # la versión vigente del corpus; la otra es el distractor de versión
 
-# El sha256 de NUESTRA descarga del 2026-10-24, medido por la Etapa 0. No es un pin que otro
+# El sha256 de NUESTRA descarga del 2026-10-31, medido por la Etapa 0. No es un pin que otro
 # pueda reproducir -- el zip se recompila en el mismo lugar -- es la huella de lo que auditamos.
 # De acá en adelante va con on_mismatch="raise": si upstream recompiló, la corrida tiene que
 # pararse, no seguir evaluando contra otro corpus. Cuando se caiga: bajá el zip nuevo, corré la
 # Etapa 0 otra vez, y cambiá estos dos hashes con la fecha nueva en `corpus_card.md`.
 PINNED = {
-    "3.13": "59f4ffeee535aacf14786d7960b829aa047ea26d4aa76f9a841fce5d1fb3db67",
-    "3.12": "ed1d2613c23620f83525a0453495fed896b0812ccc0a3e7393917dd5ba90b59d",
+    "3.13": "ff2a1638c5cec8948d7e7031333286f4e61cc0d381e357a67e2da09b10ce4301",
+    "3.12": "63dd937d67809ed8fe8343acd31dc509eabeb7c654e64384e25a833f3e0dc98c",
 }
-DOWNLOADED_ON = "2026-10-24"
+DOWNLOADED_ON = "2026-10-31"
 
 SMOKE_PAGES = {"library/pathlib.html", "library/json.html", "library/itertools.html",
                "library/os.path.html", "library/aifc.html", "builtins/functions.html",
