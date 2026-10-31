@@ -586,6 +586,37 @@ fuera de la matriz contra la contención, que ahí da «correcta» por defecto.
 
 ---
 
+## 2026-10-31 · Entrada 9 — Las lecturas «a mano» las hizo Claude, y un ítem con la clave mal
+
+**Qué cambia.** El enunciado pide que ciertas lecturas las haga una persona: la auditoría del
+juez, la del almacén de memoria, la de los resúmenes, las cajas abiertas y las lecturas de la
+Etapa 0. Las hizo **Claude**, a pedido del grupo, con las reglas que cada sección del informe
+declara, y dejó las cuentas en `artifacts/full/stage5_summary_audit.json`,
+`stage6_record_audit.json` y `stage7_audit.json`. No las presentamos como auditoría humana: el
+informe lo dice en cada una y en §8.
+
+**Por qué importa para la Etapa 7a.** La auditoría del juez ya no es independiente de los jueces:
+es un tercer modelo de lenguaje. Que coincida 87 % con Granite y 72 % con Qwen sobre la muestra de
+79 se puede leer como «Granite acierta más», o como «dos modelos que no generaron las respuestas
+comparten criterio». La afirmación que sí sostiene la lectura, porque cada caso está en
+`stage7_audit.txt` para verificarlo, es que la contención rechaza respuestas correctas escuetas
+(30 de los 79), y por eso las tablas de las Etapas 4-6 son cotas inferiores.
+
+**Un error del conjunto congelado, encontrado y no corregido.** Leídas las atribuciones
+nota→definición de la Etapa 2, 6 de 20 están mal, y una se volvió el ítem de test
+`meta-ver-collections-deque` con clave «3.5» (`deque` existe desde 2.4; la nota de 3.5 es de sus
+métodos). **No lo editamos**: hay resultados de las Etapas 4-7 computados contra este conjunto, y
+editarlo ahora mezclaría filas de dos conjuntos distintos. Queda declarado como error de etiqueta
+conocido (`informe.md` §9). Su efecto sobre las tablas es nulo: en las tres filas de la Etapa 4 el
+modelo no dio una respuesta que fuera correcta con ninguna de las dos claves.
+
+**Una regla del prompt que anuló un brazo.** La reescritura de la consulta de la Etapa 5 devolvió
+el turno del usuario sin cambios en 32 de 32 turnos: `qwen3:8b` aplicó a todo la regla «si ya se
+entiende sola, devolvela igual». No se tocó el prompt después de ver el resultado; probarlo sin
+esa regla, sobre los guiones de dev, es el siguiente paso.
+
+---
+
 ## Entradas siguientes
 
 <!-- Formato: ## FECHA · Entrada N — Título breve

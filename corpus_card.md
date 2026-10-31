@@ -286,16 +286,28 @@ no entran en el presupuesto.
 
 ---
 
-## Pendiente (una persona, no una tabla)
+## Lo que encontraron las lecturas (hechas por Claude, no por una persona)
 
-1. **Leer diez documentos crudos de principio a fin.** Están volcados en texto plano en
-   `artifacts/full/stage0_read_me/`, elegidos por diez extremos distintos (la más larga, la
-   más corta, la más en inglés, la de más anclas, la de estructura más profunda, la de hoja
-   más grande, la vecina confundible, …). Lo que haya que anotar va en la sección 4 de esta
-   corpus card: el punto del ejercicio es encontrar lo que ninguna de las tablas de arriba
-   nombró.
-2. **Corregir el chequeo a libro cerrado.** Las cinco preguntas están escritas en la última
-   celda de `00b_corpus_audit_ours.py`; necesitan un Ollama con `qwen3:8b`, así que corren en
-   la máquina de escritorio (3050) o en Colab. Marcar cada respuesta correcta / incorrecta /
-   vaga contra las anclas medidas y anotar el conteo. `corpora.md` avisa que para este corpus
-   el libro cerrado va a salir **alto**: eso cambia qué preguntas vale la pena escribir.
+Las dos lecturas que esta ficha dejaba pendientes las hizo Claude el 2026-10-31 (ver `informe.md`
+§8). Son lecturas de un modelo; una persona puede rehacerlas sobre los mismos archivos.
+
+1. **Los diez documentos crudos** (`artifacts/full/stage0_read_me/`). Lo que ninguna tabla nombró:
+   - **El código está aplanado dentro de la prosa**, con los tokens separados por espacios
+     (`cur . execute ( "SELECT …" )`, `>>> c . total () 15`): un pasaje que «contiene» un ejemplo
+     lo contiene sin saltos de línea, pegado a la oración siguiente. La regla de firmas partidas
+     de la Etapa 1 arregla `pathlib. Path` pero no toca los ejemplos.
+   - **El inglés también se mezcla por oración, no solo por párrafo**: `Availability : Linux >=
+     4.5 with glibc >= 2.27` en mitad de un párrafo en español de `os`, y las mitades sin
+     traducir de las opciones de `tkinter` («font Tk uses a font description…» al lado de
+     «geometry Es una cadena…»). La métrica de >10 % de párrafos en inglés no ve esta mezcla.
+   - **Los comentarios de los ejemplos quedan en inglés** aunque la prosa esté traducida
+     (`# Now clicking into the turtle will turn it.`).
+   - **El texto alternativo de las imágenes se filtra al cuerpo** («Turtle star» al principio de
+     `turtle`).
+   - **Las páginas de 3.13 anuncian versiones futuras** («El parámetro pasará a ser solo
+     posicional en Python 3.15», en `sqlite3`): una pregunta temporal puede recuperar un número
+     de versión que el corpus no tiene.
+2. **El chequeo a libro cerrado** (5 preguntas a `qwen3:8b` sin pasajes): **1 correcta, 1 vaga, 3
+   incorrectas**. Contra lo que avisaba `corpora.md`, en las preguntas de versión el libro
+   cerrado salió **bajo**: el modelo contesta con seguridad números de versión equivocados
+   (`full_match` «en 3.11», `Path.copy` «existe en 3.13»). Detalle en `informe.md` §1.

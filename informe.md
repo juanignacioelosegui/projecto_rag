@@ -11,9 +11,9 @@ se dijo en la conversación.
 > **Estado de este documento.** Todas las etapas corrieron en perfil `full` en la RTX 3050 el
 > 2026-10-31 (`tools/run_stages.py`, 4,7 h; `qwen3:8b` en SPLIT 30 % CPU / 70 % GPU durante las
 > Etapas 4-6). Los números de §4-7b salen de `artifacts/full/run_report.json` y de los
-> `stage*_rows.json`; las lecturas al lado de cada tabla son nuestras. Lo que sigue **PENDIENTE** son las lecturas a
-> mano que ningún script puede hacer (cajas abiertas, resúmenes, registros del almacén, auditoría del
-> juez) y §8; cada hueco dice de qué archivo sale.
+> `stage*_rows.json`; las lecturas al lado de cada tabla son nuestras. Las lecturas «a mano» están
+> hechas **por Claude, no por un integrante** (§8), y dejan sus cuentas en `artifacts/full/*audit*.json`.
+> Lo único PENDIENTE es la línea de §8 sobre qué verificó cada integrante.
 
 ---
 
@@ -35,7 +35,7 @@ Tres convenciones que valen para todas las tablas:
 
 ## 1 · Decisiones de diseño y su justificación
 
-El detalle, con fechas y alternativas descartadas, está en `decision_log.md` (8 entradas). Acá el
+El detalle, con fechas y alternativas descartadas, está en `decision_log.md` (9 entradas). Acá el
 resumen de las que condicionaron todo lo demás:
 
 | Decisión | Alternativa descartada | Qué nos llevó ahí |
@@ -43,7 +43,7 @@ resumen de las que condicionaron todo lo demás:
 | **Corpus `python-docs-es` por HTML compilado** | los `.po` del repo de traducción | el `.po` es la unidad de traducción, no la de lectura: entradas sueltas, `fuzzy`, obsoletas. El HTML es lo que un usuario lee (Entrada 2) |
 | **Dos versiones (3.13 y 3.12), no una** | una sola versión | el corpus necesita documentos confundibles para que la recuperación tenga trabajo; las páginas gemelas comparten de 0,35 a 1,00 de 5-gramas (MinHash, Etapa 0) |
 | **Todo en una RTX 3050 de 6 GB** | el reparto híbrido con una T4 de Colab (plan original, Entrada 1) | cada etapa que cruza la frontera entre dos máquinas puede desalinear el `documents_sha256` o el `index_key`, y el chequeo que lo detecta corre *después* de gastar las llamadas. El costo: `qwen3:8b` no entra en 6 GB (~5,2 de pesos + ~1,2 de caché KV a 8.192), así que la corrida se reporta con lo que diga `llm.placement()` (Entrada 7) |
-| **Etapa 3 acotada a 3 filas** | el barrido completo de piezas | el presupuesto de la Entrada 1 no daba para más filas *y* llegar a la Etapa 6, que es donde está la pregunta del proyecto |
+| **Etapa 3 como escalera: 5 escalones y 2 ramas** | el barrido completo de combinaciones de piezas | cada escalón agrega **una** pieza y se compara pareado contra el anterior, así que cada fila responde una pregunta. El plan de la Entrada 1 eran 3 filas; la Etapa 3 no llama al LLM (948 s en total), así que la escalera completa no le quitó presupuesto a la Etapa 6 |
 | **Etapa 7a sí, 7b no** | el framework (7b) | la 7a relee respuestas guardadas y no genera ninguna nueva: con todo en una placa es barata. La 7b es otra corrida completa de las Etapas 5-6 (Entrada 8) |
 | **`num_ctx = 8192` en TODAS las etapas** | ajustarlo por etapa | una fila que cambia la ventana no mide su estrategia de contexto, mide la ventana |
 | **El conjunto de evaluación congelado antes de cualquier resultado** | congelarlo al final | es lo único que hace que la división dev/test signifique algo (Entrada 5) |
@@ -56,9 +56,30 @@ resumen de las que condicionaron todo lo demás:
 
 ### Las preguntas de la Etapa 0
 
-- **De las siete propiedades, cuáles no cumple el corpus y dónde se paga.**
-  → `00b_corpus_audit_ours.ipynb`, §final. *(resumen: PENDIENTE de pegar — sale de
-  `artifacts/full/stage0_ours.json`)*
+- **De las propiedades, cuáles no cumple el corpus y dónde se paga** (`00b_corpus_audit_ours`,
+  tabla final; `artifacts/full/stage0_ours.json`):
+
+  | Propiedad | Medido | Qué etapa paga |
+  |---|---|---|
+  | ¿está la respuesta? | 385 páginas, 1.885.104 tokens; **251 páginas con >10 % de párrafos en inglés** | Etapa 3: consulta en español contra pasaje en inglés |
+  | ¿está limpio? | **13.757 marcas `¶`**, 4 stubs de redirección, etiquetas de versión en dos idiomas | Etapa 1: cada regla de limpieza, con el antes/después medido |
+  | ¿hay estructura para cortar? | 2.996 secciones (todas con id), 10.759 anclas de API, 0 páginas sin sección; 196 hojas pasan el tope | Etapa 3: las hojas grandes necesitan corte por largo |
+  | ¿el id sobrevive? | idéntico en dos descargas seguidas; contra 3.12 se mueven 1.678 anclas | Etapa 2: el gold se congela contra nuestro sha256, no contra la URL |
+  | ¿hay metadatos? | versión 100 % (por construcción), **fecha 0 %**, nota de versión 66 % | Etapa 6: sin fechas del documento, los timestamps son simulados |
+  | ¿es estable? | **no**: el zip se recompila en el mismo lugar (y volvió a pasar el 2026-10-31, Entrada 8) | Etapa 1: pin por sha256 propio y `on_mismatch="raise"` |
+  | ¿se puede evaluar? | 10.759 anclas y 4.385 notas de versión: las preguntas de identificador y temporales salen solas | Etapa 2: salen *demasiado* solas — fuga léxica, chequeo BM25 obligatorio |
+  | la similitud | Jaccard mediano 0,86 entre una página de 3.13 y su copia en 3.12 | Etapa 3: el hit@k por documento no ve el efecto; gold con las dos versiones |
+
+  Lo que **no** cumple: limpio (el `¶` y la mezcla de idiomas), fechas (no hay), estable (se
+  recompila) y la similitud, que es un problema buscado: es la que da trabajo a la recuperación.
+- **El chequeo a libro cerrado de la Etapa 0** (5 preguntas a `qwen3:8b` sin pasajes, leídas contra
+  las anclas medidas): **1 correcta** (`itertools.batched` desde 3.12), **1 vaga** (`aifc`: dice
+  bien que no se importa en 3.13, pero dice que lo eliminaron «después de 3.10»; lo eliminó 3.13) y
+  **3 incorrectas**: `PurePath.full_match` «en 3.11» (es de 3.13), `Path.copy` «sí existe en 3.13»
+  (no existe en estas versiones) y el parámetro de `Path.resolve` que falla si la ruta no existe
+  (es `strict=True`; el modelo inventa otra cosa). El modelo **cree** saber las versiones y se
+  equivoca con seguridad: es la razón para medir recuperación contra libro cerrado. *Lectura hecha
+  por Claude (ver §8).*
 - **¿El subconjunto entra en la ventana?** No: 3.13 solo son **1.884.998 tokens** estimados en 385
   páginas (`run_report.json → 00b_corpus_audit_ours.notes`). Contra `num_ctx = 8192`, el corpus es
   **230 ventanas**. Por eso hay recuperación y no un prompt largo.
@@ -175,8 +196,17 @@ ser de la clave y no del sistema.
   contra 0,03) y empata 4 a 4: a esta escala no se gana su costo, y la fila «mejor» lo es por
   empate, no por diferencia.
 - **El movimiento más grande dentro de los escalones:** «+ padre» vs «+ rerank» (1 ganada, 4
-  perdidas en sección). *La caja abierta —leer esos ítems y decir si perdió por la razón que
-  predice su paper— queda PENDIENTE de una persona* (`stage3_rows.json` y el log).
+  perdidas en sección). **La caja abierta:** las 4 pérdidas no son la recuperación fallando. En
+  `meta-pair-collections-Counter-total-3.9` el denso tenía la sección gold primera
+  (`****.*****`) y «+ padre» la reemplazó por su sección padre: el texto con la respuesta sigue
+  entregado, pero con el id del padre, y el hit de sección lo cuenta como fallo. Es lo que predice
+  la recuperación «de chico a grande» (*small-to-big* / parent-document retrieval): se gana
+  contexto alrededor y se pierde granularidad. La tabla lo confirma en agregado: «+ padre» sube la
+  respuesta entregada (83 → 85 %) y baja el hit de sección (76 → 68 %). En `t-add-note` la otra
+  causa: con padres de ~600 tokens entran 4,9 unidades en vez de 10,6, y la sección de notas de
+  excepción quedó afuera del presupuesto. La única ganancia (`t-yield`) es el caso inverso: ningún
+  canal tenía la sección `generators` entre sus 10 primeros, y con la expansión a padre entró
+  en lo entregado.
 - **Brecha documento → sección → respuesta entregada** en la mejor fila: **78 % → 76 % → 83 %**.
   La respuesta llega más seguido que la sección gold, porque la misma clave aparece en la sección
   gemela de la otra versión o en una vecina. Lo que predice para la Etapa 4: el techo de la
@@ -215,10 +245,20 @@ contexto 8.192 (`llm.placement`). **Fuente:** `artifacts/full/stage4_rows.json`.
   mide que la instrucción de abstención funciona.
 - **Oráculo − mejor recuperación: +10 puntos**, pareado 8 / 4 / 29, p = 0,39. **No sobrevive** a la
   cota: con 41 ítems no podemos afirmar que arreglar el recuperador gane algo.
-- **De las 31 donde llegó la clave, 23 bien y 8 mal** (74 %). Las 8 fallas se clasifican con
-  `key_contained`, `verdict_ok` e `inconsistent`; leerlas una por una queda *PENDIENTE de una
-  persona*. Contra el techo de la Etapa 3 (83 %), la generación alcanza 59 %: la mayor parte de lo
-  que se pierde se pierde en la generación, no en la recuperación.
+- **De las 31 donde llegó la sección, 23 bien y 8 mal** (74 %). Contra el techo de la Etapa 3
+  (83 %), la generación alcanza 59 %. **Pero leídas una por una, la mayoría de esas fallas no son
+  de generación: son de la métrica.** Contando por clave entregada hay 10 fallas, y en **7** la
+  respuesta es correcta y la contención la rechaza porque el modelo contestó corto:
+  - 5 preguntas de sí/no contestadas con el sí/no correcto y nada más (`t-else-break` «No»,
+    `t-stable-sort` «Sí, se mantiene el orden…», `ChainMap` en 3.2 «No» y en 3.3 «Sí», `Counter.total`
+    en 3.9 «No» y en 3.10 «Sí»): la clave exige además la palabra (`estable`, `3.3`, `3.10`);
+  - `t-mro`: describe bien el orden (en profundidad, de izquierda a derecha) sin la palabra
+    «resolución».
+
+  Las **3** fallas reales: dos abstenciones con la respuesta delante (`t-yield`,
+  `id-mod-makeRecord`) y un «Sí» sin sentido a «¿desde qué versión existe `collections.deque`?».
+  Conclusión para el informe: la clave conjuntiva (palabra **y** veredicto) es demasiado estricta
+  para un generador que responde escueto, y la §7b lo mide en general.
 - **Citas inventadas: 0** (todas las citas son de pasajes entregados). **Abstenciones con la
   clave en el contexto: 2** (`t-yield`, `id-mod-makeRecord`). **Inconsistencias** entre el
   booleano y el texto: **0**.
@@ -256,11 +296,18 @@ hit@10 a nivel **sección**:
   **El ranking cambia con el turno**: en el turno 1 las cuatro empatan (75 %), y en el turno 4 el
   último turno cae a 40 % mientras el oráculo llega a 100 %.
 - **La reescritura del modelo no hizo nada.** 0 discordantes contra el último turno, la misma
-  mediana de tokens (13): a juzgar por eso, `qwen3:8b` devolvió casi siempre la pregunta tal cual. Contra el oráculo
-  perdió en 9 turnos y ganó en 1 (`d-fechas#2`). De las 32 reescrituras, 2 *responden* en vez de
-  reformular (`rewrite_proxies`). Leer las 20 volcadas en `stage5_rewrites.txt` para decir **por
-  qué** queda *PENDIENTE de una persona*. Hallazgo: la brecha oráculo − modelo (+27 puntos) es lo
-  que vale una buena reescritura, y nuestro prompt de reescritura no la captura.
+  mediana de tokens (13). **Leídas las 32** (`stage5_rewrites.txt`): la reescritura del modelo es
+  **idéntica carácter por carácter al turno del usuario en las 32**, incluso en «¿Y recursivo?» y
+  «¿Y reemplazarlas?». No es un error del código: la caché de llamadas guarda la respuesta cruda
+  (`{"query": "¿Y recursivo?"}`), 32 llamadas exitosas. `qwen3:8b` aplicó a todos los turnos la
+  regla 4 del prompt («si ya se entiende sola, devolvela igual»). Los 2 casos que el proxy marca
+  como «responde la pregunta» (`d-json-csv#4`, `d-sqlite#2`) son falsos positivos del proxy: la
+  «reescritura» es el turno original, que ya contiene la clave. Y el único turno en que el modelo
+  le «ganó» al oráculo (`d-fechas#2`) es uno donde el turno suelto ya recuperaba bien y la
+  reformulación del oráculo no. Hallazgo: la brecha oráculo − modelo (+27 puntos) es lo que vale
+  una buena reescritura, y **nuestro prompt no produjo ninguna**. No lo cambiamos después de ver
+  el resultado: sería ajustarlo contra el conjunto de test. La próxima versión probaría el prompt
+  sin la regla 4, sobre los guiones de dev.
 
 ### 5B · El reparto de la ventana
 
@@ -288,9 +335,18 @@ y la del servidor coinciden en todos los brazos (máx. 4 tokens de diferencia): 
   tokens de historial contra 221 del completo, con la misma exactitud. Es el único brazo que
   ahorra ventana sin perder nada medible, pero a esta escala no hay nada que ahorrar: ningún guion
   llena la ventana.
-- **Qué hicieron mal los resúmenes** (hechos inventados, relaciones equivocadas, detalles
-  faltantes; Wang et al.): *PENDIENTE de una persona* — `stage5_summaries.txt` →
-  `stage5_summary_audit.json`.
+- **Qué hicieron mal los resúmenes** (Wang et al.; leídos los 8 de `stage5_summaries.txt` contra
+  los turnos guionados, cuentas en `stage5_summary_audit.json`): sobre **28 afirmaciones**,
+  **0 hechos inventados**, **0 relaciones equivocadas** y **26 detalles faltantes**. Los resúmenes
+  son fieles a lo que resumen y pierden casi todo lo anterior. El resumen es acumulativo (cada
+  llamada recibe el «Resumen previo» y los turnos nuevos), pero el modelo **reescribe** en vez de
+  acumular: cada resumen describe solo el último bloque de 6 mensajes, y lo que el anterior decía
+  (`datetime`, `ZoneInfo`, `strptime`, `json.load`…) desaparece en el siguiente. 24 de los 26
+  faltantes son eso; los otros 2 son nombres de excepción (`CalledProcessError`,
+  `TimeoutExpired`), que la regla 1 del prompt pedía conservar. Con un tope de 500 caracteres y
+  resúmenes de 43-73 tokens, no es falta de espacio. Eso explica que «resumen» empate con
+  «completo» (0 / 0 / 8): en la práctica es una ventana de un bloque reformulada, no una memoria
+  del guion. *Lectura hecha por Claude (ver §8).*
 
 ---
 
@@ -377,8 +433,30 @@ cerrados, 0 rechazados.
 - **Qué guardó el extractor que no era cierto o que no se dijo:** los chequeos mecánicos dan 0
   marcas de razonamiento, 0 coberturas («probablemente»), 0 filtraciones de `</think>`, 2 registros
   con solapamiento bajo con su sesión de origen y **4 `subjects` con dos valores vigentes** (un
-  UPDATE que el extractor no hizo). El conteo de falsos y nunca dichos es *PENDIENTE de una
-  persona* — `stage6_records.txt` → `stage6_record_audit.json`.
+  UPDATE que el extractor no hizo). **Leídos los 18 registros contra su sesión de origen**
+  (`stage6_records.txt` → `stage6_record_audit.json`):
+  - **contenido:** 0 falsos y 0 hipótesis; **1 nunca dicho**: `s-backup#m007` dice «Pasé todo a
+    logging, con un archivo de registro **único** (vigente desde 2026-04-10)». En la sesión 3 el
+    usuario dijo que *quiere* un registro único, no que lo tiene, y la fecha es la de la sesión 2.
+    Es el registro con solapamiento 0,17, el más bajo, así que el chequeo mecánico apuntaba bien.
+  - **vigencia — donde está casi todo el daño:**
+    - **2 registros siguen vigentes ya superados**: Python 3.11 de `s-etl` con 3.13 al lado, y
+      «imprime todo con print» de `s-backup` después de pasar a logging.
+    - **3 cerrados por error**, cada uno «reemplazado» por un registro que no tiene nada que ver:
+      la preferencia «solo biblioteca estándar» cerrada por «le molesta armar los lotes a mano»;
+      «no quiero que el archivo crezca sin límite» cerrada el mismo día por «pasé todo a logging»;
+      y «fechas en UTC» cerrada aunque la sesión 2 dice que se guarda la zona **también**, «no
+      solo UTC».
+    - **1 actualización no guardada**: la zona horaria por turno de `s-turnos` nunca se escribió.
+  - **2 `subjects` mal puestos**: «usuarios en Argentina» bajo `sistema_operativo`, y «imprime todo
+    con print» bajo `preferencia_api`.
+
+  O sea que el extractor **no inventa hechos**: se equivoca en **cuándo un hecho deja de valer**.
+  La preferencia que el almacén pierde (1/2 contra 2/2 de la reproducción) es `s-backup#p-print`
+  («¿con qué reemplazo mis print para filtrar por nivel?»). Lo que el almacén puso en el espacio
+  fue justo el registro mal etiquetado, «[preferencia_api] Imprime todo con print», y la respuesta
+  habló de filtros sin nombrar `logging`. La reproducción le mostró la frase original del usuario
+  y acertó. *Lectura hecha por Claude (ver §8).*
 - **¿La memoria mejoró la recuperación como filtro, o la perjudicó?** La perjudicó, de las dos
   maneras posibles, medidas: en **1** sonda el filtro dejó **cero** candidatos (el usuario de
   `s-etl` está en 3.11 y el corpus solo tiene 3.12 y 3.13) y en **2** sacó el pasaje gold, que
@@ -430,23 +508,69 @@ acuerdo con el juez propio y 25,0 % con Granite, casi todo «juez sí / contenci
   prueba que no exista: puede estar tapada por un juez ajeno más indulgente. La auditoría a mano
   es lo que separa las dos lecturas.
 - **Dónde el juez no coincidió con la contención:** sobre todo en «juez sí / contención no» (41 y
-  75 casos). Es la celda donde un juez puede corregir paráfrasis que la contención castiga, o
-  aprobar respuestas que no dicen la clave. En la rúbrica de actualización la sospecha es lo
-  segundo: los dos jueces aprueban respuestas que dan el valor viejo o no lo dan. Hay que leerlo
-  antes de afirmarlo.
-- **En cuál confiar: todavía en la contención.** La matriz contra una persona es *PENDIENTE*:
-  `stage7_audit.txt` tiene **79 casos** (max(30, 20 %)), empezando por todos los desacuerdos del juez
-  propio con la contención, y el veredicto propio se carga en `stage7_audit.json`. Hasta que esté,
-  el juez es una alarma sobre la contención, no un reemplazo.
+  75 casos). En la rúbrica de actualización, leídos, **la que se equivoca es la contención**:
+  «No, no debés seguir usando print… usá `logger.debug()`» es la respuesta correcta a «¿Sigo usando
+  print?», pero `logging` no está en el texto. Y «Sí» a «¿Y ahora puedo usar `itertools.batched`?»
+  es correcto (el usuario pasó a 3.13), pero `3.12` tampoco está.
+
+**La auditoría** (`stage7_audit.txt` → `stage7_audit.json`): **79 casos** (max(30, 20 %)), que
+arrancan por los 57 desacuerdos del juez propio con la contención y se completan al azar (semilla
+0). Regla de lectura: una respuesta es correcta si con ella el usuario resuelve lo que preguntó. En
+sí/no alcanza el sí/no correcto; si falta la función o clase con la que se actúa («usá rotación»,
+«el formato `%Y-%m-%d`» sin `strftime`), es incorrecta. *La lectura la hizo Claude, no un
+integrante del grupo (ver §8).*
+
+| Fuente | n | sí · auditoría sí | sí · auditoría no | no · auditoría sí | no · auditoría no | acuerdo |
+|---|---|---|---|---|---|---|
+| juez mismo modelo (`qwen3:8b`) | 79 | 43 | 11 | 11 | 14 | 72,2 % |
+| juez otra familia (`granite3.3:8b`) | 79 | 52 | 8 | 2 | 17 | **87,3 %** |
+| contención | 79 | 24 | 5 | 30 | 20 | 55,7 % |
+
+- **En cuál confiar.** La muestra está sesgada a propósito hacia los desacuerdos, así que estos
+  porcentajes no estiman el acuerdo sobre los 396: dicen **quién tiene razón cuando discrepan**. Y
+  ahí la contención pierde: **30 respuestas correctas que rechaza** (sí/no escuetos, paráfrasis,
+  `glob('**/*.csv')` por `rglob`) contra 5 incorrectas que acepta. Esas 5 son casos donde la clave
+  aparece por accidente: `check_output()` contiene `check`, y la cita
+  `[py3.13:library/zoneinfo#…]` contiene `zoneinfo`. El juez propio es el peor de los dos jueces
+  por lo contrario a la autopreferencia: rechaza respuestas correctas por «agregar información que
+  no está en la clave» y le pide a `can_answer=false` que «explique».
+- **Lo que esto cambia de las tablas anteriores:** los números de las Etapas 4-6 son **cotas
+  inferiores**. La contención subestima sobre todo las filas que responden escueto, que son las de
+  sí/no y las de memoria.
+- **El sesgo que no podemos sacar:** el auditor es un tercer modelo de lenguaje (Claude). Que
+  coincida más con Granite puede querer decir que Granite tiene razón, o que dos modelos que no
+  generaron las respuestas comparten criterio. Una lectura humana de los mismos 79 casos es lo
+  que cerraría esto.
 
 ---
 
 ## 8 · Cómo usamos IA en este trabajo
 
-PENDIENTE DE ESCRIBIR A MANO (§2.3 del enunciado pide un párrafo breve y honesto). Lo que hay que
-cubrir: qué se usó, para qué, y qué se verificó a mano antes de creerlo. Ya está en el registro de
-decisiones la frase correspondiente (Entrada 1, «Sobre el uso de IA en este trabajo») — hay que
-reconciliar las dos y que digan lo mismo.
+Usamos **Claude** (Anthropic, a través de Claude Code) en casi todo el trabajo, y lo decimos
+etapa por etapa para que se pueda juzgar qué es de quién:
+
+- **Código y diseño.** Como dice la Entrada 1 del registro, Claude escribió e iteró el código de
+  las etapas y discutimos el diseño con él. Las decisiones del registro son nuestras en el sentido
+  de que las tomamos y las firmamos, pero la mayoría se redactaron con Claude.
+- **Conjunto de evaluación.** Rigió la regla de la Entrada 1: ningún ítem se escribió con el pasaje
+  gold abierto, un ítem propuesto por un modelo era una propuesta hasta verificarlo contra el
+  corpus, y el chequeo de contaminación con BM25 corrió sobre todos. Las preguntas de identificador
+  y de versión salen de código que lee el corpus; ese código también lo escribió Claude, y §9
+  documenta un error que dejó pasar.
+- **La corrida.** Claude armó el entorno en la RTX 3050 y corrió todas las etapas en `full`. En el
+  camino arregló tres fallas: el zip recompilado (re-pin y re-congelamiento, Entrada 8), un
+  `KeyError` de la Etapa 6 con filas sin JSON parseable, y el CRLF que la prueba del candado de la
+  Etapa 2 dejaba en Windows. También escribió la Etapa 7a y llenó las tablas de §4-7b desde los
+  archivos de resultados.
+- **Las lecturas «a mano».** Las hizo **Claude, no un integrante del grupo**, con las reglas que
+  cada sección declara: el libro cerrado y los diez documentos crudos de la Etapa 0, los diffs de
+  limpieza, las atribuciones nota→definición, las cajas abiertas de las Etapas 3-5, los 8
+  resúmenes, los 18 registros del almacén y los 79 juicios del juez. Son lecturas de un tercer
+  modelo, no una auditoría humana. Por eso cada una dice de qué archivo sale y deja el `.json` con
+  las cuentas, para que una persona pueda rehacerla y comparar.
+- **Lo que verificamos nosotros:** **PENDIENTE** — completar acá qué revisó cada integrante (por
+  ejemplo, una muestra de las lecturas de arriba) antes de entregar. Si no se revisó nada, esta
+  línea tiene que decirlo.
 
 ---
 
@@ -459,57 +583,67 @@ reconciliar las dos y que digan lo mismo.
   publica intervalo por sonda, y las comparaciones van pareadas con la cota declarada.
 - **Las 25 preguntas escritas a mano las escribimos nosotros**, que ya decidimos qué nos parece una
   buena pregunta de la documentación de Python.
-- **Lo pendiente de una persona está listado, no escondido:** las 40 atribuciones nota→definición
-  (10 a leer), 2-3 diffs de limpieza, las diez páginas de `stage0_read_me/`, las 5 preguntas de
-  libro cerrado a corregir, las 20 reescrituras de la Etapa 5, la auditoría de resúmenes y la
-  auditoría de registros de memoria.
+- **Las lecturas «a mano» no son humanas.** Todas las lecturas de este informe las hizo Claude
+  (§8). Una persona puede rehacerlas sobre los mismos archivos; ninguna cuenta de este informe
+  depende de que lo haga, pero las conclusiones de §7b sobre en qué instrumento confiar sí.
+- **Un ítem del conjunto congelado tiene la clave equivocada.** Leídas las atribuciones
+  nota→definición de `stage2_note_owners.txt` (20 distintas), **6 están mal**: la heurística de
+  posición le asigna a una clase la nota de versión de uno de sus métodos o de una variante
+  vecina. Ejemplos: `Counter` «nuevo en 3.2» y «en 3.3» (son de sus métodos), `contextlib.closing`
+  «en 3.10» (es `aclosing`), `contextmanager` «en 3.7» (es `asynccontextmanager`). Una de esas
+  atribuciones se volvió un ítem de test: `meta-ver-collections-deque` pregunta desde qué versión
+  existe `collections.deque` y su clave es **3.5**, pero `deque` existe desde 2.4; la nota de 3.5 es
+  de sus métodos. No lo editamos después de tener resultados. En la Etapa 4 el modelo contestó un
+  «Sí» que es incorrecto con cualquier clave, así que ninguna fila cambia; pero el conjunto tiene
+  **un error de etiqueta conocido** y la heurística tiene una tasa de error de ~30 % en esta
+  muestra.
+- **Los diffs de limpieza no inventan texto** (leídos `library/chunk` y `howto/logging-cookbook`):
+  el `¶` pasa a salto de línea donde corresponde. Dejan dos cosas: la etiqueta de versión queda a
+  medio traducir («Obsoleto desde la versión 3.11, removed in version 3.13», porque la regla
+  traduce solo la primera mitad de la etiqueta) y el código de los ejemplos queda aplanado en la
+  prosa con los tokens espaciados (`logger . setLevel ( logging . DEBUG )`).
 
 ---
 
-## Anexo · Qué falta correr, y en qué orden
+## Anexo · Cómo se corrió, y cómo reproducirlo
 
-Todo lo de abajo necesita **Ollama con `qwen3:8b`** y GPU. Los notebooks son el entregable (con
-salidas), así que el orden de la corrida es el orden de los notebooks.
-
-```bash
-# 0. el servidor, y el modelo cargado una sola vez
-ollama serve &
-ollama pull qwen3:8b
-
-# 1. perfil full, etapa por etapa, cada una en su proceso (y su log)
-SMOKE_TEST=0 python tools/run_stages.py --from 03 --to 06
-
-# 2. los notebooks CON salidas (el zip los pide así): ejecutarlos, no regenerarlos
-#    (regenerar con py_to_notebook.py borra las salidas: eso es para commitear limpio)
-#    VS Code / Jupyter / Colab: abrir cada .ipynb y correr todo, de 03 a 06.
-
-# 3. empaquetar
-python -c "import store, environment as e; store.pack_for_review(e.artifacts_dir(False))"
-#    y agregar a mano al zip: eval/, corpus_card.md, decision_log.md, informe.md,
-#    y los .ipynb CON salidas
-```
-
-**Antes de la corrida larga, tres chequeos de 5 minutos:**
+Corrida del 2026-10-31, todo en una RTX 3050 de 6 GB (Windows 11, Python 3.13, torch 2.11 + CUDA
+12.8, Ollama 0.34.4):
 
 ```bash
-python verify_setup.py                      # servidor, modelo, VRAM, tokenizador
-SMOKE_TEST=1 python tools/run_stages.py --from 03 --to 06   # humo de punta a punta
-python tools/py_to_notebook.py --check      # los .ipynb al día con los .py
+# entorno
+py -3.13 -m venv .venv
+.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+.venv/Scripts/python -m pip install -r requirements.txt
+ollama pull qwen3:8b ; ollama pull granite3.3:8b      # (y qwen3:1.7b, granite3.3:2b para smoke)
+.venv/Scripts/python verify_setup.py --model qwen3:1.7b
 
-# y el que decide si la corrida dura 2 horas o 10 (mirar la línea `placement`):
-python -c "import llm; llm.setup('qwen3:8b', num_ctx=8192)"
+# el servidor lo levanta llm.ensure_server con estas dos variables, para TODAS las etapas
+export OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0
+
+SMOKE_TEST=1 .venv/Scripts/python tools/run_stages.py   # humo, 00-07
+SMOKE_TEST=0 .venv/Scripts/python tools/run_stages.py   # full, 00-07
 ```
 
-`placement` es el único que distingue las dos corridas posibles en esta placa. Si dice `100% GPU`,
-nada que hacer. Si dice `SPLIT x% CPU / y% GPU`, el modelo no entró en los 6 GB: **las respuestas
-son las mismas y no hay error**, solo varias veces más lento — de 1,5-2,5 h a 5-12 h sobre ~480
-llamadas. La Entrada 7 del registro decide **aceptar el split y reportarlo**, porque la comparación
-entre brazos es interna a cada etapa y el split afecta a todos los brazos igual: cuesta horas, no
-validez. Dos cosas que **no** se tocan: `num_ctx` (a 4.096 la Etapa 4 recortaría su entrega de
-pasajes en silencio) y el embebedor (moverlo a CPU cambia el `dtype` del `encoder_spec`, y con él la
-clave de `store.cached_matrix`: re-encodearía las dos matrices de hijos desde cero).
+| Etapa | segundos | llamadas al LLM |
+|---|---|---|
+| 00 · auditoría resuelta | 137 | 5 |
+| 00b · nuestra auditoría | 139 | 5 |
+| 01 · documentos | 88 | 0 |
+| 02 · conjunto de evaluación | 12 | 0 |
+| 03 · recuperación | 953 | 0 |
+| 04 · respuestas | 4.970 | 215 |
+| 05 · conversación | 4.021 | 197 |
+| 06 · memoria | 2.736 | 127 |
+| 07 · juez | 3.876 | 676 |
 
-**Riesgos conocidos de la corrida, con su mitigación ya en el código:** la caché de llamadas
-(`artifacts/full/llm_cache/`) hace que una desconexión no cueste la etapa entera; `ResultsLog`
-retoma por fila; `FROZEN.json` corta la corrida si el corpus cambió; y el pre-vuelo de contexto
-convierte un prompt demasiado grande en una fila con `error` en vez de tirar la etapa.
+`placement` dio **SPLIT 30 % CPU / 70 % GPU** para `qwen3:8b` a 8.192 y **25 / 75** a 4.096 (el
+juez); `granite3.3:8b`, 24 / 76. La Entrada 7 del registro decide aceptar el split y reportarlo,
+porque afecta a todos los brazos de una etapa igual: cuesta horas, no validez. Un detalle operativo
+que no estaba previsto: entre la Etapa 0 y la 3 el `qwen3:8b` quedó cargado (keep-alive de 30 min)
+mientras la Etapa 3 encodeaba con `bge-m3`, y se lo descargó a mano (`ollama stop qwen3:8b`) para
+que el embebedor tuviera la placa. No cambia ningún número.
+
+Los notebooks con salidas del zip de entrega se ejecutaron **después** de la corrida, sobre las
+cachés (`llm_cache`, `embeddings`, `results`). Por eso sus tiempos de celda son de reanudación, no
+de cómputo.
